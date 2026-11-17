@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/*
+ * Phase 0 placeholder. Phase 1 ports the full token set from
+ * design-reference/src/theme.css into Tailwind v4 @theme.
+ */
+:root {
+  --color-primary: #1e5b3a;
+  --color-bg: #fafaf5;
+  --color-text: #1c1c1c;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+}
