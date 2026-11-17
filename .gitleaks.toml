@@ -1,0 +1,19 @@
+# Gitleaks configuration - secret scanning for a PUBLIC repository.
+# Uses the default rule set plus project-specific allow-list entries.
+title = "AL Agriculture Learning Platform"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Files that only ever contain placeholder values"
+paths = [
+  '''\.env\.example$''',
+  '''pnpm-lock\.yaml$''',
+  '''design-reference/.*''',
+  '''docs/.*\.md$''',
+]
+regexes = [
+  # Placeholder values used in .env.example and docs
+  '''(change-me|replace-me|your-.*-here|xxxxxxxx)''',
+]
