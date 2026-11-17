@@ -1,0 +1,26 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Fail fast if someone runs `npm install` or `yarn` by mistake.
+engineStrict: true
+
+# Supply-chain safety: pnpm refuses packages published very recently unless listed here.
+# pnpm maintains this list itself when a fresh release is needed (via `pnpm install`).
+minimumReleaseAgeExclude:
+  - "@typescript-eslint/eslint-plugin@8.73.0"
+  - "@typescript-eslint/parser@8.73.0"
+  - "@typescript-eslint/project-service@8.73.0"
+  - "@typescript-eslint/scope-manager@8.73.0"
+  - "@typescript-eslint/tsconfig-utils@8.73.0"
+  - "@typescript-eslint/type-utils@8.73.0"
+  - "@typescript-eslint/types@8.73.0"
+  - "@typescript-eslint/typescript-estree@8.73.0"
+  - "@typescript-eslint/utils@8.73.0"
+  - "@typescript-eslint/visitor-keys@8.73.0"
+  - typescript-eslint@8.73.0
+
+# Only these dependencies may run install (build) scripts; everything else is blocked.
+allowBuilds:
+  esbuild: true
+  sharp: true

@@ -1,0 +1,9 @@
+pnpm lint-staged
+
+# Secret scan on staged changes (gitleaks is a standalone binary; CI always runs it,
+# locally it runs only if installed: https://github.com/gitleaks/gitleaks#installing).
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --redact --no-banner
+else
+  echo "[pre-commit] gitleaks not installed - skipping local secret scan (CI will still run it)."
+fi

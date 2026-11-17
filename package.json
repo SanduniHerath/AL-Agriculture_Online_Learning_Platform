@@ -1,0 +1,47 @@
+{
+  "name": "al-agriculture-learning-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A/L Agriculture Online Learning Platform - monorepo (web, api, shared)",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=12.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --recursive dev",
+    "build": "pnpm --recursive build",
+    "build:shared": "pnpm --filter @al-agri/shared build",
+    "lint": "pnpm build:shared && pnpm --recursive lint",
+    "typecheck": "pnpm build:shared && pnpm --recursive typecheck",
+    "test": "pnpm build:shared && pnpm --recursive test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "postinstall": "pnpm build:shared",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  }
+}
