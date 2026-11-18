@@ -27,3 +27,8 @@ allowBuilds:
   sharp: true
   "@swc/core": false
   "@parcel/watcher": false
+  # Prisma downloads its migration (schema) engine binary on install.
+  prisma: true
+  "@prisma/engines": true
+  # Install-time usage analytics pulled in by swagger-ui-express - not needed.
+  "@scarf/scarf": false

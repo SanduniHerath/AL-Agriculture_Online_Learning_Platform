@@ -1,0 +1,645 @@
+// =============================================================================
+// A/L Agriculture Online Learning Platform - database schema (MySQL 8)
+//
+// Conventions
+// - Tables are snake_case plurals (@@map) so names behave the same on every OS.
+// - Bilingual text uses paired columns: titleEn / titleSi. Tamil = add titleTa later.
+// - Money is whole Sri Lankan rupees (Int). Times are stored in UTC.
+// - Rules MySQL cannot express in this file (CHECK constraints) are added by hand in
+//   the migration SQL and noted next to the model.
+// =============================================================================
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  runtime                = "nodejs"
+  importFileExtension    = "js"
+  generatedFileExtension = "ts"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  ADMIN
+  ASSISTANT // limited staff role (SRS TBD-07)
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED // blocked by the admin (e.g. account sharing, BR-11)
+  DELETED // soft-deleted on request (PDPA); personal data anonymised
+}
+
+enum Language {
+  si
+  en
+}
+
+/// The 25 districts of Sri Lanka (same codes as DISTRICTS in packages/shared).
+enum District {
+  AMPARA
+  ANURADHAPURA
+  BADULLA
+  BATTICALOA
+  COLOMBO
+  GALLE
+  GAMPAHA
+  HAMBANTOTA
+  JAFFNA
+  KALUTARA
+  KANDY
+  KEGALLE
+  KILINOCHCHI
+  KURUNEGALA
+  MANNAR
+  MATALE
+  MATARA
+  MONARAGALA
+  MULLAITIVU
+  NUWARA_ELIYA
+  POLONNARUWA
+  PUTTALAM
+  RATNAPURA
+  TRINCOMALEE
+  VAVUNIYA
+}
+
+enum SessionEndReason {
+  LOGOUT
+  LOGOUT_ALL
+  DEVICE_LIMIT // oldest session removed when the student signs in on a new device
+  PASSWORD_RESET
+  ADMIN // revoked by the admin
+  TOKEN_REUSE // a refresh token was used twice - possible theft, session killed
+  EXPIRED
+}
+
+enum OtpPurpose {
+  REGISTER
+  RESET_PASSWORD
+  CHANGE_MOBILE
+}
+
+enum ResourceType {
+  THEORY_NOTE
+  PAST_PAPER_QUESTIONS
+}
+
+enum VideoKind {
+  TEACHING // belongs to a sub-part
+  DISCUSSION // past-paper discussion, belongs to the unit
+}
+
+enum DiscussionType {
+  MCQ
+  STRUCTURED
+  ESSAY
+}
+
+enum VideoProvider {
+  BUNNY
+  MOCK // local development only
+}
+
+enum VideoStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum PastPaperFileKind {
+  PAPER
+  MARKING_SCHEME
+}
+
+enum ProductType {
+  UNIT
+  PAST_PAPER_YEAR
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  PAYHERE
+}
+
+enum GrantSource {
+  PAYMENT
+  MANUAL // given by the admin; always audited (BR-09)
+}
+
+enum AnnouncementAudience {
+  ALL // everyone visiting the site
+  STUDENTS // logged-in students
+  UNIT_OWNERS // students who own `unitId`
+}
+
+// -----------------------------------------------------------------------------
+// Accounts
+// -----------------------------------------------------------------------------
+
+model User {
+  id                String     @id @default(cuid(2))
+  role              Role       @default(STUDENT)
+  status            UserStatus @default(ACTIVE)
+  fullName          String     @db.VarChar(120)
+  /// E.164 format, e.g. +94771234567
+  mobile            String     @unique @db.VarChar(16)
+  email             String?    @unique @db.VarChar(254)
+  /// Argon2id hash (NFR-SEC-03)
+  passwordHash      String     @db.VarChar(255)
+  examYear          Int?       @db.SmallInt
+  school            String?    @db.VarChar(160)
+  district          District?
+  preferredLanguage Language   @default(si)
+  mobileVerifiedAt  DateTime?
+
+  /// Consent record (PDPA No. 9 of 2022 / NFR-PRIV-01)
+  termsAcceptedAt DateTime?
+  termsVersion    String?   @db.VarChar(20)
+
+  /// Login protection (lockout after repeated failures)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+
+  /// Per-student device limit; NULL = use the site setting (default 2)
+  deviceLimit Int? @db.TinyInt
+
+  /// Admin two-factor authentication (TOTP). Secret is encrypted at rest.
+  totpSecretEnc String?   @db.VarChar(512)
+  totpEnabledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions        Session[]
+  otpCodes        OtpCode[]
+  orders          Order[]
+  accessGrants    AccessGrant[]   @relation("GrantOwner")
+  grantsGiven     AccessGrant[]   @relation("GrantedBy")
+  grantsRevoked   AccessGrant[]   @relation("RevokedBy")
+  videoProgress   VideoProgress[]
+  announcements   Announcement[]
+  auditLogs       AuditLog[]
+  settingsUpdated SiteSetting[]
+
+  @@index([role, status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// One row per signed-in device. Holds the hash of the current refresh token.
+model Session {
+  id                String            @id @default(cuid(2))
+  userId            String
+  /// SHA-256 of the current refresh token (the token itself is never stored)
+  refreshTokenHash  String            @unique @db.Char(64)
+  /// Hash of the previous token, kept to detect reuse after rotation
+  previousTokenHash String?           @unique @db.Char(64)
+  deviceName        String?           @db.VarChar(120)
+  userAgent         String?           @db.VarChar(512)
+  ipAddress         String?           @db.VarChar(45)
+  createdAt         DateTime          @default(now())
+  lastUsedAt        DateTime          @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  revokedReason     SessionEndReason?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// SMS one-time codes. Only an HMAC of the code is stored.
+model OtpCode {
+  id         String     @id @default(cuid(2))
+  userId     String?
+  mobile     String     @db.VarChar(16)
+  purpose    OtpPurpose
+  codeHash   String     @db.Char(64)
+  attempts   Int        @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ipAddress  String?    @db.VarChar(45)
+  createdAt  DateTime   @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mobile, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+// -----------------------------------------------------------------------------
+// Teacher introduction & site content
+// -----------------------------------------------------------------------------
+
+/// Single row (id = 1): the public teacher introduction (SRS 5.1).
+model TeacherProfile {
+  id                    Int            @id @default(1)
+  nameEn                String         @db.VarChar(120)
+  nameSi                String         @db.VarChar(120)
+  qualificationsEn      String         @db.VarChar(255)
+  qualificationsSi      String         @db.VarChar(255)
+  introEn               String         @db.Text
+  introSi               String         @db.Text
+  photoKey              String?        @db.VarChar(512)
+  introVideoProvider    VideoProvider?
+  introVideoId          String?        @db.VarChar(128)
+  introVideoDurationSec Int?
+  /// Free text so the teacher can write "18+" or "7,500+"
+  statYears             String?        @db.VarChar(20)
+  statStudents          String?        @db.VarChar(20)
+  statPasses            String?        @db.VarChar(20)
+  updatedAt             DateTime       @updatedAt
+
+  @@map("teacher_profile")
+}
+
+model Testimonial {
+  id          String   @id @default(cuid(2))
+  quoteEn     String   @db.Text
+  quoteSi     String   @db.Text
+  /// e.g. "Grade 13 student · Kandy"
+  authorEn    String   @db.VarChar(160)
+  authorSi    String   @db.VarChar(160)
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, sortOrder])
+  @@map("testimonials")
+}
+
+/// Key/value settings edited in the admin panel. Each key's JSON shape is validated
+/// by a Zod schema in packages/shared (siteSettingSchemas).
+model SiteSetting {
+  key         String   @id @db.VarChar(64)
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("site_settings")
+}
+
+model Announcement {
+  id          String               @id @default(cuid(2))
+  titleEn     String               @db.VarChar(200)
+  titleSi     String               @db.VarChar(200)
+  bodyEn      String               @db.Text
+  bodySi      String               @db.Text
+  audience    AnnouncementAudience @default(ALL)
+  unitId      Int?
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  sendSms     Boolean              @default(false)
+  sendEmail   Boolean              @default(false)
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  unit      Unit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([publishedAt, expiresAt])
+  @@map("announcements")
+}
+
+// -----------------------------------------------------------------------------
+// Syllabus content
+// -----------------------------------------------------------------------------
+
+/// One of the 19 syllabus units. CHECK (migration): number 1-19, grade 12 or 13.
+model Unit {
+  id            Int      @id @default(autoincrement())
+  number        Int      @unique @db.TinyInt
+  grade         Int      @db.TinyInt
+  slug          String   @unique @db.VarChar(80)
+  titleEn       String   @db.VarChar(200)
+  titleSi       String   @db.VarChar(200)
+  descriptionEn String?  @db.Text
+  descriptionSi String?  @db.Text
+  sortOrder     Int
+  isPublished   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subParts      SubPart[]
+  resources     Resource[]
+  videos        Video[]
+  product       Product?
+  accessGrants  AccessGrant[]
+  announcements Announcement[]
+
+  @@index([grade, sortOrder])
+  @@index([isPublished])
+  @@map("units")
+}
+
+/// A sub-part such as "1.2". Teaching videos hang off sub-parts.
+model SubPart {
+  id          String   @id @default(cuid(2))
+  unitId      Int
+  /// Display code, e.g. "1.2"
+  code        String   @db.VarChar(10)
+  titleEn     String   @db.VarChar(200)
+  titleSi     String   @db.VarChar(200)
+  sortOrder   Int
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  unit   Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  videos Video[]
+
+  @@unique([unitId, code])
+  @@index([unitId, sortOrder])
+  @@map("sub_parts")
+}
+
+/// Free, public PDFs of a unit (SRS 5.4): theory note and unit-wise past paper questions.
+model Resource {
+  id            String       @id @default(cuid(2))
+  unitId        Int
+  type          ResourceType
+  /// Medium of the document (most content is Sinhala medium)
+  language      Language     @default(si)
+  /// Storage key in the PUBLIC bucket, e.g. public/units/01/theory-note-si.pdf
+  fileKey       String       @db.VarChar(512)
+  fileName      String       @db.VarChar(200)
+  fileSizeBytes Int
+  pageCount     Int?
+  isPublished   Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([unitId, type, language])
+  @@map("resources")
+}
+
+/// Teaching video (TEACHING, has subPartId) or past-paper discussion (DISCUSSION, has
+/// discussionType). unitId is always set because a unit purchase unlocks all its videos.
+/// A sub-part cannot be deleted while it still has videos (onDelete: Restrict).
+/// CHECK (migration): TEACHING => subPartId set and discussionType NULL;
+///                    DISCUSSION => subPartId NULL and discussionType set.
+model Video {
+  id              String          @id @default(cuid(2))
+  unitId          Int
+  subPartId       String?
+  kind            VideoKind
+  discussionType  DiscussionType?
+  /// Exam year a discussion video covers, e.g. 2025
+  paperYear       Int?            @db.SmallInt
+  titleEn         String          @db.VarChar(200)
+  titleSi         String          @db.VarChar(200)
+  descriptionEn   String?         @db.Text
+  descriptionSi   String?         @db.Text
+  provider        VideoProvider
+  providerVideoId String          @db.VarChar(128)
+  status          VideoStatus     @default(PROCESSING)
+  durationSec     Int             @default(0)
+  sortOrder       Int
+  /// Preview videos still require login (BR-03) but not a purchase
+  isPreview       Boolean         @default(false)
+  isPublished     Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  unit     Unit            @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  subPart  SubPart?        @relation(fields: [subPartId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  progress VideoProgress[]
+
+  @@unique([provider, providerVideoId])
+  @@index([unitId, kind, discussionType, sortOrder])
+  @@index([subPartId, sortOrder])
+  @@map("videos")
+}
+
+/// A full A/L examination year (sold per year, SRS 5.7). CHECK (migration): 1990-2100.
+model PastPaper {
+  id          String   @id @default(cuid(2))
+  year        Int      @unique @db.SmallInt
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  files        PastPaperFile[]
+  product      Product?
+  accessGrants AccessGrant[]
+
+  @@map("past_papers")
+}
+
+/// A paid document of a year: Paper I / Paper II and their marking schemes.
+/// Stored in the PRIVATE bucket and only served through short-lived signed URLs.
+model PastPaperFile {
+  id            String            @id @default(cuid(2))
+  pastPaperId   String
+  kind          PastPaperFileKind
+  /// "I", "II" ... (A/L Agriculture has Paper I and Paper II)
+  part          String            @db.VarChar(8)
+  language      Language          @default(si)
+  fileKey       String            @db.VarChar(512)
+  fileName      String            @db.VarChar(200)
+  fileSizeBytes Int
+  pageCount     Int?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  pastPaper PastPaper @relation(fields: [pastPaperId], references: [id], onDelete: Cascade)
+
+  @@unique([pastPaperId, kind, part, language])
+  @@map("past_paper_files")
+}
+
+// -----------------------------------------------------------------------------
+// Commerce
+// -----------------------------------------------------------------------------
+
+/// Something a student can buy. CHECK (migration): priceLkr > 0, and exactly one of
+/// unitId / pastPaperId matching `type`.
+model Product {
+  id          String      @id @default(cuid(2))
+  type        ProductType
+  unitId      Int?        @unique
+  pastPaperId String?     @unique
+  /// Current price in whole rupees. Orders keep their own copy (BR-08).
+  priceLkr    Int
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  unit      Unit?      @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pastPaper PastPaper? @relation(fields: [pastPaperId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  orders    Order[]
+
+  @@index([type, isActive])
+  @@map("products")
+}
+
+model Order {
+  id          String          @id @default(cuid(2))
+  /// Human-friendly reference shown on receipts and sent to PayHere as order_id
+  orderNumber String          @unique @db.VarChar(32)
+  userId      String
+  productId   String
+  /// Snapshots at purchase time (BR-08: later price/title changes do not affect it)
+  productType ProductType
+  description String          @db.VarChar(255)
+  amountLkr   Int
+  currency    String          @default("LKR") @db.Char(3)
+  status      OrderStatus     @default(PENDING)
+  provider    PaymentProvider @default(PAYHERE)
+  /// The gateway's payment id (PayHere payment_id)
+  providerRef String?         @db.VarChar(64)
+  paidAt      DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  paymentEvents PaymentEvent[]
+  accessGrant   AccessGrant?
+
+  @@unique([provider, providerRef])
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("orders")
+}
+
+/// Every server-to-server payment notification, stored raw before processing.
+/// `idempotencyKey` makes repeated notifications harmless.
+model PaymentEvent {
+  id               String          @id @default(cuid(2))
+  provider         PaymentProvider
+  idempotencyKey   String          @unique @db.VarChar(128)
+  orderId          String?
+  providerRef      String?         @db.VarChar(64)
+  statusCode       String?         @db.VarChar(16)
+  rawPayload       Json
+  signatureValid   Boolean
+  /// e.g. GRANTED, DUPLICATE, AMOUNT_MISMATCH, UNKNOWN_ORDER, FAILED_PAYMENT
+  processingResult String?         @db.VarChar(40)
+  processedAt      DateTime?
+  ipAddress        String?         @db.VarChar(45)
+  receivedAt       DateTime        @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([receivedAt])
+  @@map("payment_events")
+}
+
+/// The right to watch a unit's videos or open a year's papers.
+///
+/// One ACTIVE grant per student and product is enforced by the database: `currentFlag`
+/// is TRUE for the current grant and NULL for revoked/replaced ones, and MySQL unique
+/// indexes ignore NULLs. Expiry (`expiresAt`) is checked at read time.
+/// CHECK (migration): exactly one of unitId / pastPaperId.
+model AccessGrant {
+  id           String      @id @default(cuid(2))
+  userId       String
+  unitId       Int?
+  pastPaperId  String?
+  source       GrantSource
+  /// Set for PAYMENT grants - one grant per order
+  orderId      String?     @unique
+  grantedById  String?
+  note         String?     @db.VarChar(255)
+  startsAt     DateTime    @default(now())
+  /// NULL = lifetime access (decision D5); calculated when the grant is created (BR-10)
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String?     @db.VarChar(255)
+  currentFlag  Boolean?    @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user      User       @relation("GrantOwner", fields: [userId], references: [id], onDelete: Restrict)
+  unit      Unit?      @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pastPaper PastPaper? @relation(fields: [pastPaperId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  order     Order?     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  grantedBy User?      @relation("GrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy User?      @relation("RevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, unitId, currentFlag])
+  @@unique([userId, pastPaperId, currentFlag])
+  @@index([expiresAt])
+  @@map("access_grants")
+}
+
+// -----------------------------------------------------------------------------
+// Learning
+// -----------------------------------------------------------------------------
+
+model VideoProgress {
+  id          String    @id @default(cuid(2))
+  userId      String
+  videoId     String
+  positionSec Int       @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([videoId])
+  @@map("video_progress")
+}
+
+// -----------------------------------------------------------------------------
+// Audit
+// -----------------------------------------------------------------------------
+
+/// Append-only log of admin actions, payments and access changes (NFR-AUD-01).
+/// The application only ever INSERTs; production DB grants should deny UPDATE/DELETE.
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?
+  actorRole  Role?
+  /// e.g. "unit.update", "grant.create", "payment.verified"
+  action     String   @db.VarChar(64)
+  entityType String   @db.VarChar(40)
+  entityId   String?  @db.VarChar(64)
+  before     Json?
+  after      Json?
+  metadata   Json?
+  ipAddress  String?  @db.VarChar(45)
+  userAgent  String?  @db.VarChar(512)
+  requestId  String?  @db.VarChar(128)
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

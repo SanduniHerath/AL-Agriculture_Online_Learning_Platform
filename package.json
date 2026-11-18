@@ -20,6 +20,11 @@
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @al-agri/api db:migrate",
+    "db:deploy": "pnpm --filter @al-agri/api db:deploy",
+    "db:seed": "pnpm --filter @al-agri/api db:seed",
+    "db:reset": "pnpm --filter @al-agri/api db:reset",
+    "db:studio": "pnpm --filter @al-agri/api db:studio",
     "postinstall": "pnpm build:shared",
     "prepare": "husky"
   },
