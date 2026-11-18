@@ -3,15 +3,23 @@ import cors from "cors";
 import express, { type Express, type Request } from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
-import { env } from "./config/env.js";
+import { apiDocsEnabled, env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { getRequestId, requestId } from "./middleware/request-id.js";
+import { unitsRouter } from "./modules/units/units.routes.js";
+import { createDocsRouter } from "./routes/docs.js";
 import { healthRouter } from "./routes/health.js";
 
 /**
  * Builds the Express application. Kept separate from `index.ts` so tests can
  * create an app instance without opening a network port.
+ *
+ * Code layout (each feature in src/modules/<name>/):
+ *   routes      URL -> controller, plus OpenAPI registration
+ *   controller  validate the request (Zod), call the service, send the response
+ *   service     business rules; throws AppError for expected failures
+ *   repository  Prisma queries only
  */
 export function createApp(): Express {
   const app = express();
@@ -43,12 +51,14 @@ export function createApp(): Express {
     pinoHttp({
       logger,
       genReqId: (req) => getRequestId(req as Request),
-      autoLogging: { ignore: (req) => req.url === "/api/health" },
+      autoLogging: { ignore: (req) => req.url?.startsWith("/api/health") ?? false },
     }),
   );
 
   // --- Routes ---
   app.use("/api", healthRouter);
+  app.use("/api", unitsRouter);
+  if (apiDocsEnabled) app.use("/api", createDocsRouter());
 
   // --- Errors (order matters: 404 first, then the handler) ---
   app.use(notFoundHandler);
