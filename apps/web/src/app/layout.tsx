@@ -1,16 +1,10 @@
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "A/L Agriculture Online Learning Platform",
-  description: "Learn G.C.E. A/L Agricultural Science from home.",
-};
-
+/**
+ * The real root layout (with <html> and <body>) is app/[locale]/layout.tsx, because the
+ * <html lang> depends on the locale. This file only passes children through; Next.js needs
+ * it so that app/not-found.tsx can exist for paths outside any locale.
+ */
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return (
-    <html lang="si">
-      <body>{children}</body>
-    </html>
-  );
+  return children;
 }

@@ -65,3 +65,36 @@ export const SL_MOBILE_COUNTRY_CODE = "+94";
 export const DEFAULT_DEVICE_LIMIT = 2;
 export const OTP_LENGTH = 6;
 export const PASSWORD_MIN_LENGTH = 8;
+
+/**
+ * The 25 administrative districts of Sri Lanka. Stored as these codes in the database;
+ * display names come from the `districts` namespace of the web app's messages.
+ */
+export const DISTRICTS = [
+  "AMPARA",
+  "ANURADHAPURA",
+  "BADULLA",
+  "BATTICALOA",
+  "COLOMBO",
+  "GALLE",
+  "GAMPAHA",
+  "HAMBANTOTA",
+  "JAFFNA",
+  "KALUTARA",
+  "KANDY",
+  "KEGALLE",
+  "KILINOCHCHI",
+  "KURUNEGALA",
+  "MANNAR",
+  "MATALE",
+  "MATARA",
+  "MONARAGALA",
+  "MULLAITIVU",
+  "NUWARA_ELIYA",
+  "POLONNARUWA",
+  "PUTTALAM",
+  "RATNAPURA",
+  "TRINCOMALEE",
+  "VAVUNIYA",
+] as const;
+export type District = (typeof DISTRICTS)[number];

@@ -7,6 +7,9 @@
     "noEmit": true,
     "incremental": true,
     "declaration": false,
+    // React code passes `undefined` for optional props all the time; this flag only adds
+    // noise here. It stays on for apps/api and packages/shared (see docs/decisions.md).
+    "exactOptionalPropertyTypes": false,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]

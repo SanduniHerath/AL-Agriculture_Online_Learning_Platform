@@ -21,6 +21,9 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.73.0
 
 # Only these dependencies may run install (build) scripts; everything else is blocked.
+# `false` = explicitly denied (they ship prebuilt binaries, so their scripts are not needed).
 allowBuilds:
   esbuild: true
   sharp: true
+  "@swc/core": false
+  "@parcel/watcher": false
