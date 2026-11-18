@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { isProduction } from "../config/env.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { AppError } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
 import { getRequestId } from "./request-id.js";
@@ -17,6 +18,23 @@ interface ErrorBody {
 /** 404 for unknown routes - must be registered after all other routes. */
 export function notFoundHandler(req: Request, _res: Response, next: NextFunction): void {
   next(AppError.notFound(`Route ${req.method} ${req.path} not found`));
+}
+
+/**
+ * Known database errors that are the caller's fault rather than a bug.
+ * https://www.prisma.io/docs/orm/reference/error-reference
+ */
+function fromPrismaError(err: Prisma.PrismaClientKnownRequestError): AppError | null {
+  switch (err.code) {
+    case "P2002": // unique constraint
+      return AppError.conflict("A record with these details already exists");
+    case "P2003": // foreign key constraint
+      return AppError.conflict("This record is still in use or refers to a missing record");
+    case "P2025": // record to update/delete not found
+      return AppError.notFound("Record not found");
+    default:
+      return null;
+  }
 }
 
 /**
@@ -42,12 +60,19 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return;
   }
 
-  if (err instanceof AppError) {
+  const appError =
+    err instanceof AppError
+      ? err
+      : err instanceof Prisma.PrismaClientKnownRequestError
+        ? fromPrismaError(err)
+        : null;
+
+  if (appError) {
     const body: ErrorBody = {
-      error: { code: err.code, message: err.message, requestId },
+      error: { code: appError.code, message: appError.message, requestId },
     };
-    if (err.details !== undefined) body.error.details = err.details;
-    res.status(err.status).json(body);
+    if (appError.details !== undefined) body.error.details = appError.details;
+    res.status(appError.status).json(body);
     return;
   }
 

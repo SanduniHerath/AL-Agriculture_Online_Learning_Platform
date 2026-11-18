@@ -7,3 +7,4 @@ pnpm-lock.yaml
 design-reference
 CHANGELOG.md
 apps/api/prisma/migrations
+apps/api/src/generated

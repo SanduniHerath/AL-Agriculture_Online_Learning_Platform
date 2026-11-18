@@ -23,23 +23,27 @@ docs/               Project brief, SRS summary, decisions log, setup guide, syll
 ```bash
 pnpm install
 cp .env.example .env && cp apps/api/.env.example apps/api/.env && cp apps/web/.env.example apps/web/.env.local
-pnpm db:up          # MySQL 8 + Adminer in Docker
-pnpm dev            # web on :3000, api on :4000
+pnpm db:up          # MySQL 8 (port 3307) + Adminer in Docker
+pnpm db:deploy      # create tables
+pnpm db:seed        # 19 units, prices, admin, sample content
+pnpm dev            # web on :3000, api on :4000 (docs: /api/docs)
 ```
 
 Full instructions: [docs/setup.md](docs/setup.md).
 
 ## Scripts
 
-| Command           | What it does                    |
-| ----------------- | ------------------------------- |
-| `pnpm dev`        | Run web and api in watch mode   |
-| `pnpm lint`       | ESLint across all workspaces    |
-| `pnpm typecheck`  | TypeScript strict checks        |
-| `pnpm test`       | Vitest unit/integration tests   |
-| `pnpm build`      | Production builds               |
-| `pnpm format`     | Prettier                        |
-| `pnpm db:up/down` | Start / stop the local database |
+| Command           | What it does                                               |
+| ----------------- | ---------------------------------------------------------- |
+| `pnpm dev`        | Run web and api in watch mode                              |
+| `pnpm lint`       | ESLint across all workspaces                               |
+| `pnpm typecheck`  | TypeScript strict checks                                   |
+| `pnpm test`       | Vitest unit/integration tests                              |
+| `pnpm build`      | Production builds                                          |
+| `pnpm format`     | Prettier                                                   |
+| `pnpm db:up/down` | Start / stop the local database                            |
+| `pnpm db:migrate` | Create + apply a migration after editing the Prisma schema |
+| `pnpm db:seed`    | Add starting data (re-runnable)                            |
 
 ## Branching
 
@@ -52,6 +56,8 @@ Full instructions: [docs/setup.md](docs/setup.md).
 - [SRS summary](docs/srs-summary.md) - condensed requirements (full SRS is not public)
 - [Decisions](docs/decisions.md) - why things were decided the way they were
 - [Syllabus units](docs/syllabus-units.md) - the 19 units and grades
+- [Database](docs/database.md) - tables, rules, commands, seed data
+- [Translations](docs/i18n.md) - adding text, Tamil later
 - [Changelog](CHANGELOG.md)
 
 ## Security

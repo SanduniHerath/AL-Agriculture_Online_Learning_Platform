@@ -12,6 +12,7 @@ export default tseslint.config(
       "**/.next/**",
       "**/coverage/**",
       "design-reference/**",
+      "**/src/generated/**", // Prisma client - generated code
       "apps/web/**", // apps/web has its own config with Next.js rules
     ],
   },
