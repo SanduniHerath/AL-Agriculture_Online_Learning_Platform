@@ -36,6 +36,8 @@ apps/api/storage/
 *.sql
 *.sql.gz
 *.dump
+# ...except Prisma migrations, which MUST be committed (they create the tables).
+!apps/api/prisma/migrations/**/migration.sql
 
 # ---- Logs ----
 *.log
